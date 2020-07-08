@@ -8,6 +8,10 @@
       在性能很高的环境中，网状网络系统在主机之间提供较短的潜伏期，
       所以可改善总体网络性能和传输速率。
       
+[海思NNIE之Mobilefacenet量化部署](https://github.com/Ewenwan/nniefacelib)
+
+[斯坦福大学Fall 2018课程-机器学习硬件加速器 cs217](https://cs217.stanford.edu/)
+      
 [浮点运算和代码优化, 并行计算, Optimizer软件](http://antkillerfarm.github.io/ai/2015/10/12/float.html)
 
 [第十七章 模型压缩及移动端部署](https://github.com/scutan90/DeepLearning-500-questions/blob/master/ch17_%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E3%80%81%E5%8A%A0%E9%80%9F%E5%8F%8A%E7%A7%BB%E5%8A%A8%E7%AB%AF%E9%83%A8%E7%BD%B2/%E7%AC%AC%E5%8D%81%E4%B8%83%E7%AB%A0_%E6%A8%A1%E5%9E%8B%E5%8E%8B%E7%BC%A9%E3%80%81%E5%8A%A0%E9%80%9F%E5%8F%8A%E7%A7%BB%E5%8A%A8%E7%AB%AF%E9%83%A8%E7%BD%B2.md)
@@ -17,6 +21,8 @@
 [代码](https://github.com/Ewenwan/mace)
       
       Mobile AI Compute Engine (MACE) 是一个专为移动端异构计算平台优化的神经网络计算框架。
+
+mace是基于opencl开发的，mace框架出来得比较早，当然没有比arm的computelibrary早。很多框架的GPU推理实现都或多或少的参考了computeLibrary。
 
       1、OpenVINO  intel cpu 核显 优化加速
       Intel推出OpenVINO工具包，将计算机视觉带到物联网终端
@@ -32,6 +38,9 @@
       2、腾讯NCNN框架入门到应用
 
 [代码](https://github.com/Ewenwan/ncnn)
+
+腾讯的ncnn：使用vulkan，支持跨平台ios，android。不过ios需要通过第三方的SDK才能使用vulkan。苹果自己开发了一套metal的gpu编程API。以后ios上什么opencl，opengles,vulkan都不再是官方原生支持的GPU编程api了。
+
      
      3、FeatherCNN
 [代码](https://github.com/Ewenwan/FeatherCNN)
@@ -41,6 +50,8 @@
 
       5、百度MDL
 [代码](https://github.com/Ewenwan/paddle-mobile)
+
+百度的paddle-lite：使用vulkan开发安卓版本的GPU推理，使用metal开发IOS版本的GPU推理
 
       6、九言科技 绝影（Prestissimo）
 [代码](https://github.com/Ewenwan/In-Prestissimo)
@@ -60,6 +71,26 @@
 [深度学习框架的并行优化方法小结](https://github.com/DragonFive/myblog/blob/master/source/_posts/mpi_parallel.md)
 
 
+      10、阿里的mnn 
+
+使用opencl，opengles，vulkan，metal四种GPU编程API开发了这个推理框架。据说很多公司开始把mnn纳入到公司内部的推理框架进行二次开发，估计更全面的GPU编程API支持是其一个最大优势。
+
+      11、谷歌的tflite：
+
+使用opengles的compute shader实现了安卓版本的GPU推理，对于IOS版本则是使用metal开发。
+
+      12、arm中国的tengine：
+
+tengine使用的是arm compute library框架作为底层GPU实现，据了解tengine在cpu端的优化下了很大功夫，当然作为ARM旗下的推理框架，自然对arm的架构和ISA指令更加了解。
+
+arm compute library：这个框架是使用opencl和opengles来实现GPU推理的。该框架做得比较早。是armnn的底层推理实现。因为arm独特的ip授权模式，armnn是为了让半导体公司能直接打通安卓的android-nn框架。
+
+13、 闭源的高通SNPE。
+
+snpe是高通开发的一个推理框架，支持GPU推理，之前尝试分析过，一些调试数据看，内部必然存在opencl实现。  
+
+
+当然，这些框架为了兼容性，都实现了CPU的推理功能。毕竟cpu推理兼容性更好，特别是现阶段几乎所有的手机端都是采用ARM的cpu。因此使用cpu的推理方案兼容性会更好。
 
 
 ## 卷积计算优化

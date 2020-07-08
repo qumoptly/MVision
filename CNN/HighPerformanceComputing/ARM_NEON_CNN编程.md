@@ -1,4 +1,19 @@
 # ARM_NEON_CNN编程
+
+内联函数优化的越来越好了，甚至在ARMv8 平台下有优于汇编的性能，同时兼容性方面又比汇编好，因此使用内联函数是上上之选。
+毕竟，NEON肯定会更新的，到时一更新你的底层汇编得全部跟着更新，但是使用内联函数的话就不要考虑这些了，反正编译器都帮我们做了嘛！
+最后关于内联函数告诉后辈们几点人生经验：
+
+使用的寄存器数量要考虑周全；
+编译器注意好啊！
+一定要看看产生的汇编代码啊！
+
+[图像算法的工程优化技术: 算法流程优化 CPU多线程 SIMD GPU编程 专用芯片](https://blog.csdn.net/jxt1234and2010/article/details/50768263)
+
+[AI 移动端框架常用指令·汇总 v7 v8 差异](https://www.jianshu.com/p/5f75fa02c5d0)
+
+[什么？！NEON还要优化？](https://www.jianshu.com/p/16d60ac56249)
+
 [神经网络arm neon加速实现](https://blog.csdn.net/fuwenyan/article/details/78793907)
 
 [常用NEON 内置函数记录备用](https://blog.csdn.net/fuwenyan/article/details/78811034)
@@ -2087,12 +2102,183 @@ __asm__ __volatile__(
 
 	类型           作用
 	r0...r15     告诉编译器汇编代码中 修改了通用寄存器r0...r15
-	cc           告诉编译器汇编代码 会 导致 CPU状态位 的 改变
-	memory       告诉编译器汇编代码 会 读取或修 改内存中某个地址 存放的值
+	cc           告诉编译器汇编代码 会 导致 CPU状态位 的 改变	memory       告诉编译器汇编代码 会 读取或修 改内存中某个地址 存放的值
 
 对于“memory”来说，它并不是表示寄存器被读取或修改了，而是表示内存中的值被修改了。出于优化的目的，在执行你的汇编代码之前，编译器将某些变量的值还保存在寄存器中，并没有被写到实际的内存中。但是，如果你的汇编代码会读取内存中的值，则很有可能新的值还在寄存器中，而内存中存放的还是老的值，这样就会造成错误。添加了“memory”之后，编译器会在执行你的代码之前，保证将保存在寄存器中，没有更新到内存中的值全部都写入到内存中。
 
 此列表中的每一项都要用双引号（""）括起来，每项之间要用逗号（“,”）分割。 
+
+
+
+### 浮点向量加法 NEON instruction 内联函数 Inline assembly内联汇编  NEON assembly 纯汇编 对比
+[Neon 寄存器 指令集 ARMv7/v8 对比](https://blog.csdn.net/zsc09_leaf/article/details/45825015)
+
+// c 与内联函数对比
+```c
+#include<arm_neon.h>
+ 
+void add_float_c(float* dst, float* src1, float* src2, int count)
+{
+     int i;
+     for (i = 0; i < count; i++)
+         dst[i] = src1[i] + src2[i];
+}
+ 
+void add_float_neon1(float* dst, float* src1, float* src2, int count)
+{
+     int i = 0;
+     for (; i < count - 3; i += 4)
+     {
+         float32x4_t in1, in2, out;
+         in1 = vld1q_f32(src1);
+         src1 += 4;
+         in2 = vld1q_f32(src2);
+         src2 += 4;
+	 // v8
+	 #if __aarch64__
+             out = vaddvq_f32(in1, in2);
+	 #else
+             out = vaddq_f32(in1, in2);
+	 #endif
+         vst1q_f32(dst, out);
+         dst += 4;
+     }
+     // 剩余 1~3个数 使用普通c
+     for(;i < count; i++)
+     {
+         dst[i] = src1[i] + src2[i]
+     }
+}
+
+
+
+```
+
+// 内联函数 V7 V8 对比
+```c
+// ARMv7-A/AArch32
+void add_float_neon3(float* dst, float* src1, float* src2, int count)
+{
+    int nn = count >> 4;
+    int remain = count - (nn << 2);
+/*
+    asm volatile (
+               "1:                                           \n" // 用于循环跳转，标记号
+               "vld1.32         {q0}, [%4]!                  \n"
+               "vld1.32         {q1}, [%5]!                  \n"
+               "vadd.f32        q0, q0, q1                   \n"
+               "subs            %1, #1                       \n"
+               "vst1.32         {q0}, [%0]!                  \n"
+               "bgt             1b                           \n"
+               : "+r"(dst),     // %0 输出参数列表
+	         "+r"(nn)       // %1
+	       : "0"(dst)     
+	         "1"(nn)
+                 "r"(src1),     // %4 输入参数列表
+	         "r"(src2)      // %5
+               : "memory", "q0", "q1"
+          );
+*/
+    asm volatile (
+               "1:                                           \n" // 用于循环跳转，标记号
+               "vld1.32         {q0}, [%[src1]]!             \n"
+               "vld1.32         {q1}, [%[src2]]!             \n"
+               "vadd.f32       q0, q0, q1                    \n"
+               "subs            %[nn], %[nn], #4       \n"
+               "vst1.32         {q0}, [%[dst]]!              \n"
+               "bgt             1b                           \n"
+               : [dst] "+r" (dst)
+               : [src1] "r" (src1), [src2] "r" (src2), [nn] "r" (nn)
+               : "memory", "q0", "q1"
+          );
+    // 剩余数处理  
+    for( ; remain > 0; remain--)
+    {
+        *dst = *src1 + *src2;
+    }
+}
+
+
+// AArch64
+void add_float_neon3(float* dst, float* src1, float* src2, int count)
+{
+    asm volatile (
+               "1:                                           \n" // 用于循环跳转，标记号
+               "ld1             {v0.4s}, [%[src1]], #16      \n"
+               "ld1             {v1.4s}, [%[src2]], #16      \n"
+               "fadd            v0.4s, v0.4s, v1.4s          \n"
+               "subs            %[count],  %[count], #4      \n"
+               "st1             {v0.4s}, [%[dst]], #16       \n"
+               "bgt             1b                           \n"
+               : [dst] "+r" (dst)   //输出参数
+               : [src1] "r" (src1), [src2] "r" (src2), [count] "r" (count)
+               : "memory", "v0", "v1"
+          );
+ 
+}
+```
+
+> 纯汇编 V7 V8 对比
+
+// 函数声明头文件
+```c
+//header
+void add_float_neon2(float* dst, float* src1, float* src2, int count);
+```
+
+// v7
+
+```asm
+    .text                               // .text表示代码正文部分
+    .syntax unified
+ 
+    .align 4                            // .align根据不同的汇编器会有不同的行为，像这里的.align4可能表示4字节对齐，也可能表示16字节对齐。
+    .global add_float_neon2             // 函数名 可以用.global或.globl来标注全局函数。在Apple的Assembler中仅支持.globl。函数名前要加下划线。
+    .type add_float_neon2, %function    // 函数名
+    .thumb    // .arm表示后面的函数中的指令都是arm指令。
+              // 而.thumb表示后面函数中的指令都是thumb或thumb-2指令。
+	      // 其中，如果一个函数是用thumb写的，那么必须用 .thumb_func 修饰，否则连接器在连接符号时会有问题。
+.thumb_func
+ 
+add_float_neon2:
+.L_loop:
+    vld1.32  {q0}, [r1]!                // 函数第一个参数为 r0 第二个为 r1 第三个位r2 第四个为 r3
+    vld1.32  {q1}, [r2]!
+    vadd.f32 q0, q0, q1
+    subs r3, r3, #4
+    vst1.32  {q0}, [r0]!
+    bgt .L_loop
+ 
+    bx lr
+
+
+```
+
+// v8
+
+```asm
+   .text
+ 
+    .align 4
+    .global add_float_neon2            # 函数名
+    .type add_float_neon2, %function   # 函数名
+ 
+add_float_neon2:
+ 
+.L_loop:
+    ld1  {v0.4s}, [x1], #16      # 函数第一个参数为 x0 第二个为 x1 第三个为 x2 第四个为 x3
+    ld1  {v1.4s}, [x2], #16
+    fadd v0.4s, v0.4s, v1.4s
+    subs x3, x3, #4
+    st1  {v0.4s}, [x0], #16
+    bgt .L_loop
+ 
+    ret
+
+```
+
+
+
 
 ## ARM NEON CNN卷积网络优化 深度学习优化 实例
 [参考NCNN](https://github.com/Ewenwan/MVision/blob/master/CNN/HighPerformanceComputing/example/ncnn_%E6%BA%90%E7%A0%81%E5%88%86%E6%9E%90.md)
@@ -2164,9 +2350,9 @@ v8:
   后缀为8b/16b/4h/8h/2s/4s/2d）
   大括号内最多支持4个V寄存器；
 
-  "ld1    {v0.4s, v1.4s, v2.4s, v3.4s}, [%2], #64 \n"   // 4s表示float32
+  "ld1    {v0.4s, v1.4s, v2.4s, v3.4s}, [%2], #64 \n"   // 4s表示float32 后面的64 是 64个字节 16个字节为128位 读取4*128位数据
   "ld1    {v0.8h, v1.8h}, [%2], #32     \n"
-  "ld1    {v0.4h, v1.4h}, [%2], #32     \n"             // 4h 表示int16
+  "ld1    {v0.4h, v1.4h}, [%2], #32     \n"             // 4h 表示int16 读取32*8 = 2*128位数据 2个v寄存器
 
 
 所有的汇编代码必须用双引号括起来。如果有多行汇编代码的话，每一条语句都要用双引号括起来，并且在代码后面要加上换行符（“\n”或者“\n\t”）。
@@ -2184,11 +2370,11 @@ v8:
         asm volatile(
             "0:                               \n" // 0: 作为标志，局部标签
             "prfm       pldl1keep, [%1, #128] \n" // %1处为ptr标识为1标识,即数据地址，预取 128个字节 4*32 = 128
-            "ld1        {v0.4s}, [%1]         \n" // 载入 ptr 指针对应的值，连续4个
+            "ld1        {v0.4s}, [%1]         \n" // 载入 ptr 指针对应的值，连续4个float 12位
             "fabs       v0.4s, v0.4s          \n" // ptr 指针对应的值 连续4个，使用fabs函数 进行绝对值操作 4s表示浮点数
             "subs       %w0, %w0, #1          \n" // %0 引用 参数 nn 操作次数每次 -1  #1表示1
-	                                          // 
-            "st1        {v0.4s}, [%1], #16    \n" // %1 引用 参数 ptr 指针 向前移动 4*4=16字节
+	                                          // w表示啥?
+            "st1        {v0.4s}, [%1], #16    \n" // %1 引用 参数 ptr 指针 向前移动 4*4=16字节 = 16*8 =128位
 	                                          // store 1, {v0.4s} 计算绝对值后 再存入 [%1]?
             "bne        0b                    \n" // 如果非0，则向后跳转到 0标志处执行
 	    
@@ -2269,6 +2455,45 @@ v8:
     
     // yi = b * xi + a
     
+// 在layer/batchnorm.cpp  的 BatchNorm::load_model 函数中处理
+
+int BatchNorm::load_model(const ModelBin& mb)
+
+{
+    slope_data = mb.load(channels, 1);  // 缩放系数
+    if (slope_data.empty())
+        return -100;
+	
+    mean_data = mb.load(channels, 1);   // 均值
+    if (mean_data.empty())
+        return -100;
+
+    var_data = mb.load(channels, 1);    // 方差
+    if (var_data.empty())
+        return -100;
+	
+    bias_data = mb.load(channels, 1);   // 标准差
+    if (bias_data.empty())
+        return -100;
+	
+    a_data.create(channels);            // 去均值减方差 缩放和平移合在一起 >>> 新偏移量
+    if (a_data.empty()) 
+        return -100;
+
+    b_data.create(channels);            // 新 缩放系数
+    if (b_data.empty())
+        return -100;
+
+    for (int i=0; i<channels; i++)
+    {
+        float sqrt_var = sqrt(var_data[i] + eps);                           // 标准差
+        a_data[i] = bias_data[i] - slope_data[i] * mean_data[i] / sqrt_var; // 新偏移量
+        b_data[i] = slope_data[i] / sqrt_var;                               // 新 缩放系数
+    }
+
+    return 0;
+} 
+    
     
 int BatchNorm_arm::forward_inplace(Mat& bottom_top_blob, const Option& opt) const
 {
@@ -2319,7 +2544,7 @@ int BatchNorm_arm::forward_inplace(Mat& bottom_top_blob, const Option& opt) cons
             "fmla       v3.4s, v0.4s, v2.4s    \n" // 特征数据v0*缩放v2 + 偏置v3 最后赋值给 v3 += v0×b
             "subs       %w0, %w0, #1           \n" // %0 为nn 执行次数 -1   #1   为1
             "st1        {v3.4s}, [%1], #16     \n" // 结果v3 store存储到 原数据地址处，原数据地址递增16字节
-            "bne        0b                     \n" // 不为零跳回去，继续循环
+            "bne        0b                     \n" // subs结果不为零的话跳转回去，继续循环
             : "=r"(nn),     // %0
               "=r"(ptr)     // %1
             : "0"(nn),      // 2 ???=====
@@ -2405,6 +2630,7 @@ int Bias_arm::forward_inplace(Mat& bottom_top_blob, const Option& opt) const
 #endif // __ARM_NEON
 
 #if __ARM_NEON
+/*
 // 这里 直接使用了 neon Instrinsic 内在函数，不过优化程度不如 汇编代码
 
         float32x4_t _bias = vdupq_n_f32(bias);// 偏置数据 dup载入到 寄存器 4个32位的浮点数
@@ -2417,8 +2643,54 @@ int Bias_arm::forward_inplace(Mat& bottom_top_blob, const Option& opt) const
 
             ptr += 4;// 特征指针 移动四个单位
         }
-	
+*/	
 // 可以试写 neon内联汇编代码，区分v8 、v7===============
+	
+#if __aarch64__
+        if (nn > 0)
+        {
+        asm volatile(
+            "dup        v1.4s, %w4             \n" // 每通道的 变化系数a,b都一样只需载入一次，传入的为立即数使用dup
+            "0:                                \n" // 构成循环的标记号
+            "prfm       pldl1keep, [%1, #128]  \n" // 从%1 ptr 处预读取 128字节 4*32 4个浮点数
+            "ld1        {v0.4s}, [%1]          \n" // 载入 ptr 指针对应的值到 v0，连续4个float
+            "fadd       v0.4s, v0.4s, v1.4s    \n" // v0 = v0 + v1
+            "subs       %w0, %w0, #1           \n" // %0 为nn 执行次数 -1   #1   为1
+            "st1        {v0.4s}, [%1], #16     \n" // 结果v0 store存储到 原数据地址处，原数据地址递增16字节
+            "bne        0b                     \n" // subs结果不为零的话跳转回去，继续循环
+            : "=r"(nn),     // %0
+              "=r"(ptr)     // %1
+            : "0"(nn),      // 2 ???=====
+              "1"(ptr),     // 3 ???=====
+              "r"(bias)     // %4 存入寄存器 只读, 不变, 参数 偏置a
+            : "cc", "memory", "v0", "v1"
+	    //  cc CPU状态位，内存memory，v，v1，v2，v3寄存器 可能会变化
+        );
+        }
+#else
+        if (nn > 0)
+        {
+        asm volatile(
+            "vdup.f32   q1, %4              \n"// 每通道的 变化系数a,b都一样只需载入一次，传入的为立即数使用dup		       
+            "0:                             \n"// 构成循环的标记号
+            "pld        [%1, #128]          \n"// 从%1 ptr 处预读取 128字节 4*32 4个浮点数
+            "vld1.f32   {d0-d1}, [%1 :128]  \n"// 从%1 ptr 处载入 4个浮点数到q0，传入的为指针，使用ld
+            "vadd.f32   q0, q0, q1          \n"// q0 = q0(特征值) + q1(变量bias)
+            "subs       %0, #1              \n"// 循环次数 nn -1
+            "vst1.f32   {d0-d1}, [%1 :128]! \n"// q0->{d0-d1} 结果值 顺序store到 原特征值地址处[%1]  !感叹号，强制[%1]向后跳转128位 
+            "bne        0b                  \n"// 不为零跳回去，继续循环 
+	    
+            : "=r"(nn),     // %0 循环次数(按寄存器一次并行运算4个浮点数数) nn 
+              "=r"(ptr)     // %1 特征值数据地址
+            : "0"(nn),      // 2 ???===
+              "1"(ptr),     // 3 ???===
+              "r"(bias)     // %4
+            : "cc", "memory", "q0", "q1"
+	    //  cc CPU状态位，内存memory，q0，q1，q2，q3寄存器 可能会变化
+        );
+        }
+#endif // __aarch64__	
+	
 	
 #endif // __ARM_NEON
 
@@ -2434,5 +2706,113 @@ int Bias_arm::forward_inplace(Mat& bottom_top_blob, const Option& opt) const
 }
 
 
+```
+
+### 4.修剪 clip 上下阈值处理
+
+
+```c
+int Clip_arm::forward_inplace(Mat &bottom_top_blob, const Option &opt) const
+{
+    int w = bottom_top_blob.w;
+    int h = bottom_top_blob.h;
+    int channels = bottom_top_blob.c;
+    int size = w * h;
+    int elempack = bottom_top_blob.elempack;
+
+#if __ARM_NEON
+    if (elempack == 4)  // 如果数据数量是4的整数倍 直接使用instric指令计算 也不用考虑剩余数的处理
+    {
+        #pragma omp parallel for num_threads(opt.num_threads)
+        for (int q=0; q<channels; q++)
+        {
+            float* ptr = bottom_top_blob.channel(q);
+
+            float32x4_t _max = vdupq_n_f32(max); // 最小值
+            float32x4_t _min = vdupq_n_f32(min); // 最大值
+
+            for (int i=0; i<size; i++)
+            {
+                float32x4_t _ptr = vld1q_f32(ptr);// 载入特征值 x
+                _ptr = vmaxq_f32(_ptr, _min);     // 下限处理
+                _ptr = vminq_f32(_ptr, _max);     // 上限处理
+                vst1q_f32(ptr, _ptr);             // 结果存回 内存地址
+
+                ptr += 4;
+            }
+        }
+
+        return 0;
+    }
+#endif // __ARM_NEON
+
+    #pragma omp parallel for num_threads(opt.num_threads)
+    for (int q=0; q<channels; q++)
+    {
+        float* ptr = bottom_top_blob.channel(q);
+
+#if __ARM_NEON
+        int nn = size >> 2;                  // 除以4 的余数
+        int remain = size & 3;               // 剩余
+#else
+        int remain = size;
+#endif
+
+#if __ARM_NEON
+        float32x4_t _max = vdupq_n_f32(max); // 最小值
+        float32x4_t _min = vdupq_n_f32(min); // 最大值
+#if __aarch64__
+        for (; nn>0; nn--)
+        {
+            float32x4_t _ptr = vld1q_f32(ptr);
+            _ptr = vmaxq_f32(_ptr, _min);
+            _ptr = vminq_f32(_ptr, _max);
+            vst1q_f32(ptr, _ptr);
+            ptr += 4;
+        }
+#else
+        if (nn > 0)
+        {
+        asm volatile(
+            "0:                             \n"
+            "pld        [%1, #128]          \n" // 预取 128位(字节?)
+            "vld1.f32   {d0-d1}, [%1: 128]  \n" // q0 寄存器存储 普通人指针处 的值
+            "vmax.f32   q0, q0, %q4         \n" // 下限处理
+            "vmin.f32   q0, q0, %q5         \n" // 上限处理
+            "subs       %0, #1              \n" 
+            "vst1.f32   {d0-d1}, [%1: 128]! \n"
+            "bne        0b                  \n"
+
+            : "=r"(nn),     // %0
+              "=r"(ptr)     // %1
+            : "0"(nn),
+              "1"(ptr),
+              "w"(_min),    // %q4
+              "w"(_max)     // %q5
+            : "cc", "memory", "q0"
+        );
+        }
+#endif // __aarch64__
+#endif // __ARM_NEON
+
+        for (; remain>0; remain--)
+        {
+            if (*ptr < min)
+                *ptr = min;
+            if (*ptr > max)
+                *ptr = max;
+            ptr++;
+        }
+    }
+
+    return 0;
+}
 
 ```
+
+
+
+
+
+
+
